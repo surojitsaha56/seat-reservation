@@ -1,19 +1,22 @@
 package com.seatreservation.system.service;
 
-import com.seatreservation.system.api.ApiException;
-import com.seatreservation.system.api.CountsDto;
-import com.seatreservation.system.api.CreateShowRequest;
-import com.seatreservation.system.api.SeatDto;
-import com.seatreservation.system.api.ShowResponse;
+import com.seatreservation.system.exception.ApiException;
+import com.seatreservation.system.model.CountsDto;
+import com.seatreservation.system.model.CreateShowRequest;
+import com.seatreservation.system.model.SeatDto;
+import com.seatreservation.system.model.ShowResponse;
 import com.seatreservation.system.repo.ShowRepository;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 public class ShowService {
     static final int DEFAULT_PER_USER_LIMIT = 4;
@@ -26,6 +29,7 @@ public class ShowService {
 
     @Transactional
     public ShowResponse create(CreateShowRequest req) {
+        log.info("Inside create show service");
         if (req == null) throw ApiException.validation("Request body is required");
         if (req.name() == null || req.name().isBlank()) throw ApiException.validation("name must be non-blank");
         if (req.seats() == null || req.seats().isEmpty()) throw ApiException.validation("seats must be non-empty");

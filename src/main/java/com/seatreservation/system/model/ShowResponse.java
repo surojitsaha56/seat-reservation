@@ -1,4 +1,4 @@
-package com.seatreservation.system.api;
+package com.seatreservation.system.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

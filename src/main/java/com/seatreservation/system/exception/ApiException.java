@@ -1,4 +1,4 @@
-package com.seatreservation.system.api;
+package com.seatreservation.system.exception;
 
 import org.springframework.http.HttpStatus;
 

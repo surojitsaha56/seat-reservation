@@ -1,7 +1,7 @@
 package com.seatreservation.system.repo;
 
-import com.seatreservation.system.api.CountsDto;
-import com.seatreservation.system.api.SeatDto;
+import com.seatreservation.system.model.CountsDto;
+import com.seatreservation.system.model.SeatDto;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.List;
