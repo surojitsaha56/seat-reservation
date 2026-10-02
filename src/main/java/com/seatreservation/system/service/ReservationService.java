@@ -5,6 +5,7 @@ import com.seatreservation.system.exception.ReserveDeclinedException;
 import com.seatreservation.system.exception.ReserveDeclinedException.Reason;
 import com.seatreservation.system.model.ReservationResponse;
 import com.seatreservation.system.model.ReserveResult;
+import com.seatreservation.system.observability.ReservationMetrics;
 import com.seatreservation.system.repo.ReservationRepository;
 import com.seatreservation.system.repo.ReservationRepository.CancelledRow;
 import com.seatreservation.system.repo.ReservationRepository.OwnerStatus;
@@ -50,29 +51,45 @@ public class ReservationService {
     private final ShowRepository shows;
     private final TransactionTemplate tx;
 
-    public ReservationService(ReservationRepository repo, ShowRepository shows, PlatformTransactionManager tm) {
+    private final ReservationMetrics metrics;
+
+    public ReservationService(ReservationRepository repo, ShowRepository shows, PlatformTransactionManager tm,
+            ReservationMetrics metrics) {
         this.repo = repo;
         this.shows = shows;
+        this.metrics = metrics;
         this.tx = new TransactionTemplate(tm);
         this.tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
-    /** Single outcome log point (step 6 hooks metrics here). */
+    /** Single outcome log point for reserve. */
     private void outcome(String outcome, String reason, UUID showId, String userId, Object detail) {
         log.info("reserve outcome={} reason={} show_id={} user_id={} detail={}", outcome, reason, showId, userId, detail);
     }
 
+    /**
+     * Metrics are bumped only here, after doReserve (and thus tx.execute, including any 40P01/40001 retries) has
+     * returned or thrown: a retried or rolled-back attempt never reaches this point, so nothing double counts.
+     */
     public ReserveResult reserve(UUID showId, String userId, String key, List<String> rawSeats) {
         try {
             ReserveResult r = doReserve(showId, userId, key, rawSeats);
             outcome(r.outcome().name(), r.outcome() == ReserveResult.Outcome.REPLAY ? "idempotent_replay" : "ok",
                     showId, userId, r.reservation().reservationId());
+            if (r.outcome() == ReserveResult.Outcome.REPLAY) metrics.replay();
+            else metrics.confirmed();
             return r;
         } catch (ReserveDeclinedException e) {
             outcome(ReserveResult.Outcome.DECLINED.name(), e.reason().code(), showId, userId, e.seats());
+            metrics.declined(e.reason());
             throw e;
         } catch (ApiException e) {
             outcome("REJECTED", e.error(), showId, userId, e.getMessage());
+            metrics.validationRejected();
+            throw e;
+        } catch (RuntimeException e) {
+            // DB trouble after retries, or a bug: not a decline; the controller advice turns it into 503/500
+            metrics.error();
             throw e;
         }
     }
@@ -190,12 +207,18 @@ public class ReservationService {
         try {
             ReservationResponse r = inTx("cancel", () -> cancelTx(reservationId, userId));
             cancelOutcome(CancelOutcome.CANCELLED, "ok", reservationId, userId);
+            metrics.cancelled(); // after commit
             return r;
         } catch (ReserveDeclinedException e) {
             cancelOutcome(CancelOutcome.DECLINED, e.reason().code(), reservationId, userId);
+            metrics.cancelDeclined(e.reason());
             throw e;
         } catch (ApiException e) {
             cancelOutcome(CancelOutcome.NOT_FOUND, e.error(), reservationId, userId);
+            metrics.cancelNotFound();
+            throw e;
+        } catch (RuntimeException e) {
+            metrics.cancelError();
             throw e;
         }
     }

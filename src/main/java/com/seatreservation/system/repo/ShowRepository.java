@@ -59,6 +59,21 @@ public class ShowRepository {
                 (rs, i) -> new SeatDto(rs.getString("label"), rs.getString("status")), showId);
     }
 
+    /** All shows: {available, held, confirmed} from ONE GROUP BY statement (one snapshot). */
+    public long[] countAllSeats() {
+        long[] c = new long[3];
+        jdbc.query("SELECT status, count(*) AS n FROM seats GROUP BY status", rs -> {
+            long n = rs.getLong("n");
+            switch (rs.getString("status")) {
+                case "available" -> c[0] = n;
+                case "held" -> c[1] = n;
+                case "confirmed" -> c[2] = n;
+                default -> { }
+            }
+        });
+        return c;
+    }
+
     /** Single GROUP BY snapshot of seat statuses. */
     public CountsDto countSeats(UUID showId) {
         int[] c = new int[3]; // available, held, confirmed
