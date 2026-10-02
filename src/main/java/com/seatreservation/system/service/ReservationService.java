@@ -37,8 +37,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class ReservationService {
     private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
+
+    // retries in case of deadlock
     private static final int MAX_TX_ATTEMPTS = 3;
-    private static final int MAX_CLAIM_ATTEMPTS = 5;
     private static final int MAX_KEY_LENGTH = 255;
 
     private final ReservationRepository repo;
@@ -135,21 +136,13 @@ public class ReservationService {
         long amount = show.pricePaise() * (long) n;
 
         // idempotency claim; a concurrent duplicate blocks on the unique index until the first txn ends
-        boolean claimed = false;
-        for (int i = 0; i < MAX_CLAIM_ATTEMPTS && !claimed; i++) {
-            if (repo.claim(id, show.id(), userId, key, hash, seats, amount).isPresent()) {
-                claimed = true;
-            } else {
-                Optional<ReservationRow> existing = repo.findByUserAndKey(userId, key);
-                if (existing.isPresent()) {
-                    return ReserveResult.replay(replayOrReject(existing.get(), hash));
-                }
-                // the first txn rolled back (declined): its row is gone, so claim again
-            }
-        }
-        if (!claimed) {
-            throw new org.springframework.dao.TransientDataAccessResourceException(
-                    "could not claim idempotency key after " + MAX_CLAIM_ATTEMPTS + " attempts");
+        // If the key's first txn rolled back, the blocked insert simply succeeds; if it committed, the
+        // insert returns nothing and (READ COMMITTED, fresh snapshot per statement) the row is visible.
+        if (repo.claim(id, show.id(), userId, key, hash, seats, amount).isEmpty()) {
+            ReservationRow existing = repo.findByUserAndKey(userId, key)
+                    .orElseThrow(() -> new org.springframework.dao.TransientDataAccessResourceException(
+                            "idempotency row vanished after conflict"));
+            return ReserveResult.replay(replayOrReject(existing, hash));
         }
 
         if (!repo.incrementHold(show.id(), userId, n, show.perUserLimit())) {
