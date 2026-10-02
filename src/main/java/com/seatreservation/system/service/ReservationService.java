@@ -201,6 +201,8 @@ public class ReservationService {
     }
 
     private ReservationResponse cancelTx(UUID reservationId, String userId) {
+
+        // update the reservation table mark row as cancelled
         Optional<CancelledRow> cancelled = repo.markCancelled(reservationId, userId);
         if (cancelled.isEmpty()) {
             // Not found and "owned by someone else" are deliberately indistinguishable (404 for both).
@@ -218,11 +220,14 @@ public class ReservationService {
             throw new IllegalStateException("user_show_holds row missing for reservation " + reservationId);
         }
 
+        // reservation table has no of seats which is checked by seats in seats table
         List<String> locked = repo.lockSeatsOf(reservationId);
         if (locked.size() != n) {
             throw new IllegalStateException("reservation " + reservationId + " owns " + locked.size()
                     + " seats, expected " + n);
         }
+
+        // update status of seats in seats table
         if (repo.releaseSeats(reservationId) != n) {
             throw new IllegalStateException("released seat count mismatch for reservation " + reservationId);
         }
