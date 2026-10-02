@@ -16,6 +16,8 @@ services:
       retries: 20
   app:
     build: .
+    # mimic Render free (512MB); JVM sizes its heap from this via MaxRAMPercentage
+    mem_limit: 512m
     depends_on:
       db:
         condition: service_healthy
