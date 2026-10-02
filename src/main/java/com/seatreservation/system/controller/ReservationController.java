@@ -35,8 +35,12 @@ public class ReservationController {
             @RequestHeader(value = "Idempotency-Key", required = false) String headerKey,
             @RequestBody(required = false) ReserveRequest body,
             HttpServletRequest request) {
-        String userId = AuthContext.userId(request); // identity only from the verified token
+
+        // checks jwt token and verifies the user.
+        String userId = AuthContext.userId(request);
         MDC.put("show_id", id.toString());
+
+        // validating idempotency key in header and body
         if (body == null) throw ApiException.validation("Request body is required");
         String bodyKey = body.idempotencyKey();
         boolean hasHeader = headerKey != null && !headerKey.isBlank();
@@ -44,7 +48,9 @@ public class ReservationController {
         if (hasHeader && hasBody && !headerKey.equals(bodyKey)) {
             throw ApiException.validation("Idempotency-Key header and idempotency_key body field differ");
         }
-        String key = hasHeader ? headerKey : bodyKey; // header wins
+        String key = hasHeader ? headerKey : bodyKey;
+
+        // calls reserve function
         ReserveResult r = service.reserve(id, userId, key, body.seats());
         HttpStatus status = r.outcome() == ReserveResult.Outcome.REPLAY ? HttpStatus.OK : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(r.reservation());

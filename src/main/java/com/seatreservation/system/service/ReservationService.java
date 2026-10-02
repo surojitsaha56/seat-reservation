@@ -14,7 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
@@ -40,6 +39,8 @@ public class ReservationService {
 
     // retries in case of deadlock
     private static final int MAX_TX_ATTEMPTS = 3;
+
+    // idempotency key that client will send.
     private static final int MAX_KEY_LENGTH = 255;
 
     private final ReservationRepository repo;
@@ -74,41 +75,67 @@ public class ReservationService {
     }
 
     private ReserveResult doReserve(UUID showId, String userId, String key, List<String> rawSeats) {
-        // 1. validate
+        // validating idempotency keys and seats.
         if (key == null || key.isBlank()) throw ApiException.validation("Idempotency key is required");
         if (key.length() > MAX_KEY_LENGTH) throw ApiException.validation("Idempotency key too long");
         if (rawSeats == null || rawSeats.isEmpty()) throw ApiException.validation("seats must be non-empty");
         Set<String> seen = new HashSet<>();
+
+        // if duplicate seats in request throw exception
         for (String s : rawSeats) {
             if (s == null || s.isBlank()) throw ApiException.validation("seat labels must be non-blank");
             if (!seen.add(s)) throw ApiException.validation("duplicate seat label: " + s);
         }
+
+        // checking if show id is valid
         ShowRow show = shows.findShow(showId)
                 .orElseThrow(() -> ApiException.notFound("show not found: " + showId));
+
+        // sorting to list to prevent deadlock
         List<String> seats = rawSeats.stream().sorted().toList();
+
+        // seats in request should not be greater than permissible value
+        // of seats a person can book in show
         int n = seats.size();
         if (n > show.perUserLimit()) {
             throw new ReserveDeclinedException(Reason.PER_USER_LIMIT,
                     "At most " + show.perUserLimit() + " seats per user for this show", List.of());
         }
+
+        // eliminates unknown seats
         Set<String> existing = new HashSet<>(repo.existingLabels(showId, seats));
         for (String s : seats) {
             if (!existing.contains(s)) throw ApiException.validation("unknown seat for this show: " + s);
         }
+
+        // hash is generated so that if user tries two same request at the same time.
+        // only 1 txn commits, then the second txn should show booked for that
+        // user not seat unavailable
         String hash = requestHash(showId, seats);
 
         // Ordering matters: the read-only idempotency lookup comes BEFORE the lock-free fast path.
         // A retry of an already-successful request finds its seats 'confirmed' (by itself), so running
         // the fast path first would wrongly answer 409 seat_taken instead of replaying the original.
         // The fast path is load shedding only; the transaction below is the correctness mechanism.
+
+        // check if user has already booked or not.
         Optional<ReservationRow> prior = repo.findByUserAndKey(userId, key);
         if (prior.isPresent()) {
+            // if user has already booked, and user again hit with same request and
+            // idempotency key. if both match then show them seats booked else
+            // reject
             return ReserveResult.replay(replayOrReject(prior.get(), hash));
         }
+
+        // this function checks seats from db. if they are booked then show failure to
+        // users.
         List<String> taken = repo.confirmedAmong(showId, seats);
         if (!taken.isEmpty()) {
             // The original request may have committed between the lookup above and this read (the
             // "taken" seats can be our own). Re-check before declining so concurrent duplicates replay.
+
+            // case where user hits 2 requests. 1st one takes time so hits 2nd
+            // handling that scenario
             Optional<ReservationRow> raced = repo.findByUserAndKey(userId, key);
             if (raced.isPresent()) {
                 return ReserveResult.replay(replayOrReject(raced.get(), hash));
@@ -117,6 +144,7 @@ public class ReservationService {
         }
 
         // 2-6. the transaction, retried on deadlock / serialization failure
+        // deadlock may throw 500x error to handle that
         for (int attempt = 1; ; attempt++) {
             try {
                 return tx.execute(status -> reserveTx(show, userId, key, hash, seats));
@@ -132,6 +160,7 @@ public class ReservationService {
 
     private ReserveResult reserveTx(ShowRow show, String userId, String key, String hash, List<String> seats) {
         int n = seats.size();
+        // unique id for reservation
         UUID id = UUID.randomUUID();
         long amount = show.pricePaise() * (long) n;
 
@@ -145,11 +174,15 @@ public class ReservationService {
             return ReserveResult.replay(replayOrReject(existing, hash));
         }
 
+        // update seats within user limit
         if (!repo.incrementHold(show.id(), userId, n, show.perUserLimit())) {
             throw new ReserveDeclinedException(Reason.PER_USER_LIMIT,
                     "Per-user limit of " + show.perUserLimit() + " seats reached for this show", List.of());
         }
 
+        // update seats table.
+        // the booked seats check before the transaction could be stale at this moment.
+        // that is why another time this check is done
         List<SeatState> locked = repo.lockSeats(show.id(), seats);
         List<String> unavailable = locked.stream().filter(s -> !"available".equals(s.status()))
                 .map(SeatState::label).toList();
