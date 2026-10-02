@@ -55,4 +55,15 @@ public class ReservationController {
         HttpStatus status = r.outcome() == ReserveResult.Outcome.REPLAY ? HttpStatus.OK : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(r.reservation());
     }
+
+    /**
+     * 200 with the cancelled reservation; 404 when it does not exist or belongs to another user (same
+     * response for both); 409 already_cancelled when the caller's own reservation was cancelled before.
+     */
+    @PostMapping("/reservations/{id}/cancel")
+    public ResponseEntity<ReservationResponse> cancel(@PathVariable UUID id, HttpServletRequest request) {
+        String userId = AuthContext.userId(request);
+        MDC.put("reservation_id", id.toString());
+        return ResponseEntity.ok(service.cancel(id, userId));
+    }
 }

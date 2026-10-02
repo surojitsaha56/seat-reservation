@@ -111,6 +111,54 @@ public class ReservationRepository {
                 });
     }
 
+    public record CancelledRow(UUID showId, List<String> seats, long amountPaise) {
+    }
+
+    public record OwnerStatus(String userId, String status) {
+    }
+
+    /**
+     * Cancel step 1: flips the caller's own confirmed reservation to cancelled (this takes the reservation
+     * row lock). Empty when it does not exist, belongs to someone else, or is already cancelled.
+     */
+    public Optional<CancelledRow> markCancelled(UUID id, String userId) {
+        return jdbc.query("""
+                UPDATE reservations SET status = 'cancelled'
+                WHERE id = ? AND user_id = ? AND status = 'confirmed'
+                RETURNING show_id, seats, amount_paise""",
+                ps -> {
+                    ps.setObject(1, id);
+                    ps.setString(2, userId);
+                },
+                (rs, i) -> new CancelledRow(rs.getObject(1, UUID.class),
+                        List.of((String[]) rs.getArray(2).getArray()), rs.getLong(3))).stream().findFirst();
+    }
+
+    /** Used only to tell "not yours / not found" apart from "already cancelled" after markCancelled failed. */
+    public Optional<OwnerStatus> findOwnerStatus(UUID id) {
+        return jdbc.query("SELECT user_id, status FROM reservations WHERE id = ?",
+                (rs, i) -> new OwnerStatus(rs.getString(1), rs.getString(2)), id).stream().findFirst();
+    }
+
+    /** Returns rows updated (must be 1; the row is locked by us). The check constraint forbids going below 0. */
+    public int decrementHold(UUID showId, String userId, int n) {
+        return jdbc.update("UPDATE user_show_holds SET seat_count = seat_count - ? WHERE show_id = ? AND user_id = ?",
+                n, showId, userId);
+    }
+
+    /** Row-locks the reservation's seats in label order (same order as lockSeats). */
+    public List<String> lockSeatsOf(UUID reservationId) {
+        return jdbc.query("SELECT label FROM seats WHERE reservation_id = ? ORDER BY label FOR UPDATE",
+                (rs, i) -> rs.getString(1), reservationId);
+    }
+
+    /** Frees the seats, guarded by reservation_id so another reservation's seats are never touched. */
+    public int releaseSeats(UUID reservationId) {
+        return jdbc.update("""
+                UPDATE seats SET status = 'available', reservation_id = NULL, user_id = NULL
+                WHERE reservation_id = ?""", reservationId);
+    }
+
     private static void bind(PreparedStatement ps, UUID showId, List<String> labels) throws SQLException {
         ps.setObject(1, showId);
         ps.setArray(2, ps.getConnection().createArrayOf("text", labels.toArray()));

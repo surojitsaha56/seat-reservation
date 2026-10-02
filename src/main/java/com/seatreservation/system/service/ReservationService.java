@@ -6,6 +6,8 @@ import com.seatreservation.system.exception.ReserveDeclinedException.Reason;
 import com.seatreservation.system.model.ReservationResponse;
 import com.seatreservation.system.model.ReserveResult;
 import com.seatreservation.system.repo.ReservationRepository;
+import com.seatreservation.system.repo.ReservationRepository.CancelledRow;
+import com.seatreservation.system.repo.ReservationRepository.OwnerStatus;
 import com.seatreservation.system.repo.ReservationRepository.ReservationRow;
 import com.seatreservation.system.repo.ReservationRepository.SeatState;
 import com.seatreservation.system.repo.ShowRepository;
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -145,17 +148,86 @@ public class ReservationService {
 
         // 2-6. the transaction, retried on deadlock / serialization failure
         // deadlock may throw 500x error to handle that
+        return inTx("reserve", () -> reserveTx(show, userId, key, hash, seats));
+    }
+
+    /** Runs the callback in one READ COMMITTED transaction, retrying on deadlock / serialization failure. */
+    private <T> T inTx(String op, Supplier<T> body) {
         for (int attempt = 1; ; attempt++) {
             try {
-                return tx.execute(status -> reserveTx(show, userId, key, hash, seats));
+                return tx.execute(status -> body.get());
             } catch (DataAccessException e) {
                 if (attempt < MAX_TX_ATTEMPTS && isRetryable(e)) {
-                    log.warn("reserve retry attempt={} after transient conflict: {}", attempt, e.getMessage());
+                    log.warn("{} retry attempt={} after transient conflict: {}", op, attempt, e.getMessage());
                     continue;
                 }
                 throw e;
             }
         }
+    }
+
+    /** Single outcome log point for cancel (step 6 hooks metrics here). */
+    private void cancelOutcome(CancelOutcome outcome, String reason, UUID reservationId, String userId) {
+        log.info("cancel outcome={} reason={} reservation_id={} user_id={}", outcome, reason, reservationId, userId);
+    }
+
+    public enum CancelOutcome { CANCELLED, DECLINED, NOT_FOUND }
+
+    /**
+     * Cancel = one READ COMMITTED transaction: reservation row -> user_show_holds row -> seat rows (by label).
+     *
+     * Lock order vs reserve (reserve: INSERT reservation row -> hold row -> seat rows):
+     * - Reserve's reservation row is brand new and invisible to others, so nobody can wait on it; the only
+     *   transaction that ever locks it is its creator (cancel needs it committed). The reservation-row lock
+     *   therefore can never sit in a wait cycle with reserve.
+     * - Both then take exactly one hold row, and only after that the seat rows, sorted by label. Nobody
+     *   waits for a hold row while holding a seat lock, and seat locks are always acquired in label order.
+     * - Two cancels (or cancel vs. cancel) of the same reservation serialize on its row lock; the loser
+     *   re-evaluates status and finds 0 rows. Different reservations share only seats, in sorted order.
+     * So every wait edge goes forward in the order reservation -> hold -> seats(label); no cycles.
+     */
+    public ReservationResponse cancel(UUID reservationId, String userId) {
+        try {
+            ReservationResponse r = inTx("cancel", () -> cancelTx(reservationId, userId));
+            cancelOutcome(CancelOutcome.CANCELLED, "ok", reservationId, userId);
+            return r;
+        } catch (ReserveDeclinedException e) {
+            cancelOutcome(CancelOutcome.DECLINED, e.reason().code(), reservationId, userId);
+            throw e;
+        } catch (ApiException e) {
+            cancelOutcome(CancelOutcome.NOT_FOUND, e.error(), reservationId, userId);
+            throw e;
+        }
+    }
+
+    private ReservationResponse cancelTx(UUID reservationId, String userId) {
+        Optional<CancelledRow> cancelled = repo.markCancelled(reservationId, userId);
+        if (cancelled.isEmpty()) {
+            // Not found and "owned by someone else" are deliberately indistinguishable (404 for both).
+            Optional<OwnerStatus> cur = repo.findOwnerStatus(reservationId);
+            if (cur.isPresent() && cur.get().userId().equals(userId) && "cancelled".equals(cur.get().status())) {
+                throw new ReserveDeclinedException(Reason.ALREADY_CANCELLED,
+                        "Reservation is already cancelled", List.of());
+            }
+            throw ApiException.notFound("reservation not found: " + reservationId);
+        }
+        CancelledRow row = cancelled.get();
+        int n = row.seats().size();
+
+        if (repo.decrementHold(row.showId(), userId, n) != 1) {
+            throw new IllegalStateException("user_show_holds row missing for reservation " + reservationId);
+        }
+
+        List<String> locked = repo.lockSeatsOf(reservationId);
+        if (locked.size() != n) {
+            throw new IllegalStateException("reservation " + reservationId + " owns " + locked.size()
+                    + " seats, expected " + n);
+        }
+        if (repo.releaseSeats(reservationId) != n) {
+            throw new IllegalStateException("released seat count mismatch for reservation " + reservationId);
+        }
+        return new ReservationResponse(reservationId, row.showId(), userId, row.seats(), row.amountPaise(),
+                "cancelled");
     }
 
     private ReserveResult reserveTx(ShowRow show, String userId, String key, String hash, List<String> seats) {

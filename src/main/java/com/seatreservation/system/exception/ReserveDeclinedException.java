@@ -11,7 +11,8 @@ public class ReserveDeclinedException extends ApiException {
     public enum Reason {
         SEAT_TAKEN("seat_taken"),
         PER_USER_LIMIT("per_user_limit"),
-        IDEMPOTENCY_KEY_REUSED("idempotency_key_reused");
+        IDEMPOTENCY_KEY_REUSED("idempotency_key_reused"),
+        ALREADY_CANCELLED("already_cancelled");
 
         private final String code;
 
