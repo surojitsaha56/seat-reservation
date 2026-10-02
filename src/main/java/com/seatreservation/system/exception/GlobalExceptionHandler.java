@@ -1,12 +1,15 @@
 package com.seatreservation.system.exception;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -17,23 +20,44 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ApiException.class)
-    ResponseEntity<Map<String, String>> api(ApiException e) {
+    ResponseEntity<Map<String, Object>> api(ApiException e) {
         return body(e.status(), e.error(), e.getMessage());
     }
 
+    /** 409 {error:"conflict", reason, message[, seats]}. */
+    @ExceptionHandler(ReserveDeclinedException.class)
+    ResponseEntity<Map<String, Object>> declined(ReserveDeclinedException e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("error", e.error());
+        m.put("reason", e.reason().code());
+        m.put("message", e.getMessage());
+        if (!e.seats().isEmpty()) {
+            m.put("seats", e.seats());
+        }
+        return ResponseEntity.status(e.status()).body(m);
+    }
+
+    /** DB trouble (pool timeout, connection loss, exhausted deadlock retries...) fails closed with 503. */
+    @ExceptionHandler({DataAccessException.class, TransactionException.class})
+    ResponseEntity<Map<String, Object>> dbUnavailable(Exception e) {
+        log.warn("Database unavailable, returning 503: {}: {}", e.getClass().getSimpleName(), e.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header("Retry-After", "1")
+                .body(Map.of("error", "service_unavailable", "message", "Temporarily unavailable, retry shortly"));
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    ResponseEntity<Map<String, String>> unreadable(HttpMessageNotReadableException e) {
+    ResponseEntity<Map<String, Object>> unreadable(HttpMessageNotReadableException e) {
         return body(HttpStatus.BAD_REQUEST, "validation_error", "Malformed or invalid JSON body");
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    ResponseEntity<Map<String, String>> typeMismatch(MethodArgumentTypeMismatchException e) {
+    ResponseEntity<Map<String, Object>> typeMismatch(MethodArgumentTypeMismatchException e) {
         return body(HttpStatus.BAD_REQUEST, "validation_error",
                 "Invalid value for '" + e.getName() + "'");
     }
 
     @ExceptionHandler(Exception.class)
-    ResponseEntity<Map<String, String>> unexpected(Exception e) throws Exception {
+    ResponseEntity<Map<String, Object>> unexpected(Exception e) throws Exception {
         // Spring MVC's own HTTP errors (404, 405, 415, ...) keep their proper status.
         if (e instanceof ErrorResponse) {
             throw e;
@@ -42,7 +66,7 @@ public class GlobalExceptionHandler {
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "internal_error", "Internal error");
     }
 
-    private static ResponseEntity<Map<String, String>> body(HttpStatus s, String error, String msg) {
+    private static ResponseEntity<Map<String, Object>> body(HttpStatus s, String error, String msg) {
         return ResponseEntity.status(s).body(Map.of("error", error, "message", msg));
     }
 }
