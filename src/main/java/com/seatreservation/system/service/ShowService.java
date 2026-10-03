@@ -51,6 +51,8 @@ public class ShowService {
         repo.insertShow(id, req.name().trim(), price, limit, labels.size());
         repo.insertSeats(id, labels);
         List<SeatDto> seats = labels.stream().map(l -> new SeatDto(l, "available")).toList();
+        log.info("show created show_id={} name={} total_seats={} price_paise={} per_user_limit={}",
+                id, req.name().trim(), labels.size(), price, limit);
         return new ShowResponse(id, req.name().trim(), price, limit, labels.size(), null, seats);
     }
 
@@ -60,6 +62,8 @@ public class ShowService {
         var show = repo.findShow(id).orElseThrow(() -> ApiException.notFound("show not found: " + id));
         CountsDto counts = repo.countSeats(id);
         List<SeatDto> seats = repo.findSeats(id);
+        // debug: polled constantly during a burst, so not info
+        log.debug("show fetched show_id={} available={} confirmed={}", id, counts.available(), counts.confirmed());
         return new ShowResponse(show.id(), show.name(), show.pricePaise(), show.perUserLimit(),
                 show.totalSeats(), counts, seats);
     }

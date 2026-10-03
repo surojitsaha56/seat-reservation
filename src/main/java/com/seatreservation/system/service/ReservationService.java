@@ -75,7 +75,8 @@ public class ReservationService {
         try {
             ReserveResult r = doReserve(showId, userId, key, rawSeats);
             outcome(r.outcome().name(), r.outcome() == ReserveResult.Outcome.REPLAY ? "idempotent_replay" : "ok",
-                    showId, userId, r.reservation().reservationId());
+                    showId, userId, "reservation_id=" + r.reservation().reservationId()
+                            + " seats=" + r.reservation().seats() + " amount_paise=" + r.reservation().amountPaise());
             if (r.outcome() == ReserveResult.Outcome.REPLAY) metrics.replay();
             else metrics.confirmed();
             return r;

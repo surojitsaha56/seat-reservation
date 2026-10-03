@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -13,6 +14,7 @@ import org.springframework.util.AntPathMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /** Validates "Authorization: Bearer <jwt>" on protected user endpoints. */
+@Slf4j
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class JwtAuthFilter extends OncePerRequestFilter {
@@ -41,6 +43,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = req.getHeader("Authorization");
         if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            log.warn("auth rejected method={} path={} reason=missing_bearer_token", req.getMethod(), req.getRequestURI());
             reject(res, "Missing bearer token");
             return;
         }
@@ -48,6 +51,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         try {
             userId = jwt.verify(header.substring(7).trim());
         } catch (RuntimeException e) {
+            log.warn("auth rejected method={} path={} reason=invalid_or_expired_token", req.getMethod(), req.getRequestURI());
             reject(res, "Invalid or expired token");
             return;
         }
