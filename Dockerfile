@@ -10,6 +10,6 @@ RUN groupadd --system app && useradd --system --gid app app
 WORKDIR /app
 COPY --from=build /build/app.jar app.jar
 USER app
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1"
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1 -XX:+UseSerialGC"
 EXPOSE 8080
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

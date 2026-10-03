@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: seat-reservation
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon            # must equal the database region: the internal DB URL only resolves in-region
+    healthCheckPath: /actuator/health/readiness
+    autoDeployTrigger: commit
+    envVars:
+      # Render injects PORT (default 10000); application.properties uses server.port=${PORT:8080}.
+      - key: DATABASE_URL     # postgres://... form; converted to JDBC at startup (DatabaseUrlEnvironmentPostProcessor)
+        fromDatabase:
+          name: seat-reservation-db
+          property: connectionString
+      - key: JWT_SECRET       # generated: 256-bit base64 (44 chars), above the 32-byte minimum
+        generateValue: true
+      - key: ADMIN_TOKEN      # secret: not stored in git; Render prompts for it when the Blueprint is first applied
+        sync: false
+      - key: AUTH_TOKEN_ENDPOINT_ENABLED
+        value: "true"
+      - key: JAVA_OPTS        # 512 MB instance: smaller heap share leaves room for metaspace/threads; serial GC is leanest
+        value: "-XX:MaxRAMPercentage=65 -XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xss512k"
+
+databases:
+  - name: seat-reservation-db
+    plan: free                # free Postgres expires 30 days after creation (see Render free-tier docs)
+    region: oregon
+    databaseName: seats
+    user: seats
