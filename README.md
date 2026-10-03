@@ -9,18 +9,8 @@ Correctness guarantees, all enforced inside Postgres transactions rather than in
 - Base URL: https://seat-reservation-viak.onrender.com
 - Hosted on Render's free tier. The instance sleeps after about 15 minutes without traffic and takes about a minute to wake. The first request after a sleep can take around 55 seconds (one measured cold start: "ready after 55.5 s"). Send a request to `/actuator/health/readiness` and wait for `200` before judging anything.
 - Get a user token (open dev issuer, no password, by design: any `user_id` of 1 to 64 characters gets a token valid for 3600 s by default):
-
-```
-Request:
-curl -s -X POST https://seat-reservation-viak.onrender.com/auth/token \
-  -H 'Content-Type: application/json' -d '{"user_id":"alice"}'
-
-Response:
-{"token":"<jwt>","user_id":"alice","expires_in":3600}
-```
-
 - Creating a show (`POST /shows`) is admin-only and needs the header `X-Admin-Token`. The deployed value is `dev-admin-token`.
-- Logs on Render are in the Render dashboard (Logs tab) and need the owner's login; there is no public log URL. `<LOGS ACCESS FOR GRADERS (screen recording or dashboard invite) — owner to fill in>`
+- Logs on Render are in the Render dashboard (Logs tab) and need the owner's login; there is no public access
 
 ## API
 
@@ -36,42 +26,6 @@ Response:
 | GET | `/actuator/health/readiness` | none | 200 only if the DB answers `SELECT 1`; 503 otherwise |
 | GET | `/actuator/prometheus` | none | Prometheus metrics |
 
-Examples (`BASE=https://seat-reservation-viak.onrender.com`; for a local run use `http://localhost:8080`):
-
-```
-# create a show (admin). per_user_limit is optional, default 4. price_paise must be an integer > 0.
-Request:
-curl -s -X POST $BASE/shows -H 'Content-Type: application/json' -H "X-Admin-Token: $ADMIN_TOKEN" \
-  -d '{"name":"friday-night","seats":["A1","A2","A3","A4","A5"],"price_paise":25000,"per_user_limit":4}'
-Response:
-{"id":"<show-id>","name":"friday-night","price_paise":25000,"per_user_limit":4,"total_seats":5,"seats":[{"label":"A1","status":"available"},...]}
-
-# show state
-Request:
-curl -s $BASE/shows/$SHOW
-Response:
-{"id":...,"total_seats":5,"counts":{"total":5,"available":5,"held":0,"confirmed":0},"seats":[{"label":"A1","status":"available"},...]}
-
-# token
-TOKEN=$(curl -s -X POST $BASE/auth/token -H 'Content-Type: application/json' -d '{"user_id":"alice"}' | sed 's/.*"token":"\([^"]*\)".*/\1/')
-
-# reserve, idempotency key in the header
-curl -s -X POST $BASE/shows/$SHOW/reserve -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -H 'Idempotency-Key: order-1' -d '{"seats":["A1"]}'
-# 201 {"reservation_id":"...","show_id":"...","user_id":"alice","seats":["A1"],"amount_paise":25000,"status":"confirmed"}
-
-# reserve, idempotency key in the body (if both are given they must be equal, else 400)
-curl -s -X POST $BASE/shows/$SHOW/reserve -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"seats":["A2","A3"],"idempotency_key":"order-2"}'
-
-# cancel (owner only)
-curl -s -X POST $BASE/reservations/$RESERVATION/cancel -H "Authorization: Bearer $TOKEN"
-# 200 {... "status":"cancelled"}
-
-# health and metrics
-curl -s $BASE/actuator/health/readiness        # {"status":"UP"}
-curl -s $BASE/actuator/prometheus | grep -E '^(reservations|cancels|seats)'
-```
 
 ### Status codes
 
