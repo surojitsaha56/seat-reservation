@@ -1,0 +1,202 @@
+{
+  "info": {
+    "_postman_id": "ef00b32d-65f5-4604-b636-052360e671ca",
+    "name": "paytm",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "45407958"
+  },
+  "item": [
+    {
+      "name": "create show",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Admin-Token",
+            "value": "dev-admin-token"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"friday-night\",\"seats\":[\"A1\",\"A2\",\"A3\",\"A4\",\"A5\"],\"price_paise\":25000,\"per_user_limit\":4}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://seat-reservation-viak.onrender.com/shows",
+          "protocol": "https",
+          "host": [
+            "seat-reservation-viak",
+            "onrender",
+            "com"
+          ],
+          "path": [
+            "shows"
+          ]
+        },
+        "description": "Generated from cURL: curl --location 'http://localhost:8080/shows' \\\n--header 'X-Admin-Token: dev-admin-token' \\\n--header 'Content-Type: application/json' \\\n--data '{\"name\":\"friday-night\",\"seats\":[\"A1\",\"A2\",\"A3\",\"A4\",\"A5\"],\"price_paise\":25000,\"per_user_limit\":4}'"
+      },
+      "response": []
+    },
+    {
+      "name": "get show",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://seat-reservation-viak.onrender.com/shows/c77cc604-21c5-4a95-8f60-5f5b6b3895a4",
+          "protocol": "https",
+          "host": [
+            "seat-reservation-viak",
+            "onrender",
+            "com"
+          ],
+          "path": [
+            "shows",
+            "c77cc604-21c5-4a95-8f60-5f5b6b3895a4"
+          ]
+        },
+        "description": "Generated from cURL: curl --location 'http://localhost:8080/shows/<SHOW_ID>'"
+      },
+      "response": []
+    },
+    {
+      "name": "get token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"user_id\":\"alice\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://seat-reservation-viak.onrender.com/auth/token",
+          "protocol": "https",
+          "host": [
+            "seat-reservation-viak",
+            "onrender",
+            "com"
+          ],
+          "path": [
+            "auth",
+            "token"
+          ]
+        },
+        "description": "Generated from cURL: curl --location 'http://localhost:8080/auth/token' \\\n--header 'Content-Type: application/json' \\\n--data '{\"user_id\":\"alice\"}'"
+      },
+      "response": []
+    },
+    {
+      "name": "check user",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6MTc5MTA1NjMwMywiaWF0IjoxNzkxMDUyNzAzfQ.03_qof7hdjV-goYryoEhd1806hTv7y1ybLBRtrl6RxU"
+          }
+        ],
+        "url": {
+          "raw": "https://seat-reservation-viak.onrender.com/me",
+          "protocol": "https",
+          "host": [
+            "seat-reservation-viak",
+            "onrender",
+            "com"
+          ],
+          "path": [
+            "me"
+          ]
+        },
+        "description": "Generated from cURL: curl --location 'http://localhost:8080/me' \\\r\n--header 'Authorization: Bearer <TOKEN>'"
+      },
+      "response": []
+    },
+    {
+      "name": "reserve seats",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6MTc5MTA1NjMwMywiaWF0IjoxNzkxMDUyNzAzfQ.03_qof7hdjV-goYryoEhd1806hTv7y1ybLBRtrl6RxU"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"seats\": [\r\n        \"A1\",\r\n        \"A2\"\r\n    ],\r\n    \"idempotency_key\": \"k1\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://seat-reservation-viak.onrender.com/shows/c77cc604-21c5-4a95-8f60-5f5b6b3895a4/reserve",
+          "protocol": "https",
+          "host": [
+            "seat-reservation-viak",
+            "onrender",
+            "com"
+          ],
+          "path": [
+            "shows",
+            "c77cc604-21c5-4a95-8f60-5f5b6b3895a4",
+            "reserve"
+          ]
+        },
+        "description": "Generated from cURL: curl --location 'http://localhost:8080/shows/<SHOW_ID>/reserve' \\\r\n--header 'Authorization: Bearer <TOKEN>' \\\r\n--header 'Content-Type: application/json' \\\r\n--data '{\"seats\":[\"A1\",\"A2\"],\"idempotency_key\":\"k1\r\n"
+      },
+      "response": []
+    },
+    {
+      "name": "cancel reservation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6MTc5MTA1NjMwMywiaWF0IjoxNzkxMDUyNzAzfQ.03_qof7hdjV-goYryoEhd1806hTv7y1ybLBRtrl6RxU"
+          }
+        ],
+        "url": {
+          "raw": "https://seat-reservation-viak.onrender.com/reservations/329cc26d-46ef-4a7f-806c-ccb9ad8cf69a/cancel",
+          "protocol": "https",
+          "host": [
+            "seat-reservation-viak",
+            "onrender",
+            "com"
+          ],
+          "path": [
+            "reservations",
+            "329cc26d-46ef-4a7f-806c-ccb9ad8cf69a",
+            "cancel"
+          ]
+        },
+        "description": "Generated from cURL: curl --location --request POST 'http://localhost:8_ID>/cancel' \\\r\n--header 'Authorization: Bearer <TOKEN>'"
+      },
+      "response": []
+    }
+  ]
+}
