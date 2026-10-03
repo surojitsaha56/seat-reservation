@@ -47,7 +47,7 @@ Behaviour decisions:
 - A request for more seats than `per_user_limit` is declined up front with 409 `per_user_limit`. Cancelling decrements the user's count, so they can reserve again.
 - Idempotency keys are scoped per user: two users can use the same key independently.
 - Seats are matched by exact label string. Prices are `price_paise` (integer) and `amount_paise = price_paise * seats`.
-
+- Trace id will be visible in logs if X-Request-Id value is passed in header else random uuid will be used
 ## Run locally
 
 Prerequisites: Docker (for compose and for the tests). JDK 21 only if you run outside Docker or run the burst client.
